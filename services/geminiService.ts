@@ -33,22 +33,22 @@ const handleGeminiError = (error: any, modelId: string) => {
   
   // 2. Lỗi Hết hạn mức (429 - Resource Exhausted) - Rất phổ biến với Free Tier
   if (errorMessage.includes('429') || errorMessage.includes('resource_exhausted') || errorMessage.includes('Too Many Requests')) {
-    return new Error("HẾT HẠN MỨC MIỄN PHÍ (Quota Exceeded). API Key hệ thống đang bị quá tải. Vui lòng nhập API Key cá nhân của bạn để tiếp tục sử dụng.");
+    return new Error("HẾT HẠN MỨC (429). Key hiện tại đã hết hạn mức sử dụng trong ngày. Vui lòng nhập API Key cá nhân để tiếp tục.");
   }
   
   // 3. Lỗi API Key không hợp lệ (400)
   if (errorMessage.includes('400') || errorMessage.includes('API key') || errorMessage.includes('invalid argument')) {
-    return new Error("API Key không hợp lệ. Nếu bạn đang dùng Key hệ thống, có thể Key đã bị hỏng. Vui lòng nhập Key cá nhân.");
+    return new Error("API Key không hợp lệ. Vui lòng kiểm tra lại cấu hình.");
   }
 
   // 4. Lỗi Quyền truy cập / Giới hạn tên miền (403)
   if (errorMessage.includes('403') || errorMessage.includes('permission_denied')) {
-    return new Error("API Key bị từ chối (Lỗi 403). Có thể Key hệ thống bị giới hạn sai tên miền hoặc đã hết hạn. Vui lòng nhập Key cá nhân.");
+    return new Error("API Key bị từ chối (403). Có thể Key này bị giới hạn sai tên miền hoặc IP. Vui lòng nhập Key cá nhân không giới hạn.");
   }
   
   // 5. Lỗi Mạng / CORS
   if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError') || errorMessage.includes('fetch failed')) {
-    return new Error("Lỗi kết nối mạng (CORS). Nếu đang dùng Key hệ thống, hãy thử nhập Key cá nhân của bạn.");
+    return new Error("Lỗi kết nối mạng (CORS). Vui lòng kiểm tra đường truyền hoặc thử lại sau.");
   }
 
   // 6. Lỗi quá tải server Google (503)
@@ -56,12 +56,12 @@ const handleGeminiError = (error: any, modelId: string) => {
     return new Error("Server Google đang quá tải. Vui lòng chờ 1 lát rồi thử lại.");
   }
   
-  return new Error(`Lỗi từ Google (${modelId}): ${errorMessage}`);
+  return new Error(`Lỗi từ Google: ${errorMessage}`);
 };
 
 export const generateContent = async (
   modelId: string,
-  prompt: string,
+  promptOrParts: string | any[],
   apiKey: string,
   systemInstruction?: string
 ): Promise<string> => {
@@ -72,9 +72,14 @@ export const generateContent = async (
   const ai = createClient(apiKey);
   
   try {
+    // Xử lý đầu vào: Nếu là string thì gói vào mảng, nếu là mảng (có file) thì giữ nguyên
+    const contents = Array.isArray(promptOrParts) 
+      ? { parts: promptOrParts }
+      : promptOrParts;
+
     const response = await ai.models.generateContent({
       model: modelId,
-      contents: prompt,
+      contents: contents,
       config: {
         systemInstruction: systemInstruction,
       }

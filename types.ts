@@ -5,6 +5,7 @@ export interface FormData {
   grade: string;
   situation: string;
   solution: string;
+  specificLessons: string; // Tên các bài học dùng làm ví dụ
 }
 
 export enum GenerationStep {
@@ -32,4 +33,11 @@ export interface Settings {
 export interface GenerationRequest {
   formData: FormData;
   settings: Settings;
+}
+
+export interface UploadedFile {
+  name: string;
+  type: 'pdf' | 'docx' | 'txt';
+  content: string | ArrayBuffer; // Base64 cho PDF, Text cho Docx/Txt
+  mimeType: string;
 }

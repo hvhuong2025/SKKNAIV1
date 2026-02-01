@@ -18,6 +18,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   React.useEffect(() => {
+    // Khi mở modal, nếu key hiện tại trùng với System Key thì hiển thị trạng thái "đang dùng system key"
+    // Để làm điều này, ta kiểm tra nếu localSettings.apiKey === SYSTEM_API_KEY thì giao diện sẽ xử lý
     setLocalSettings(settings);
     setTestResult(null);
   }, [settings, isOpen]);
@@ -27,16 +29,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
   const handleSave = () => {
     let keyToSave = localSettings.apiKey.trim();
     
-    // Nếu người dùng để trống và có Key hệ thống -> Tự động dùng Key hệ thống
+    // Nếu người dùng chọn dùng System Key (keyToSave rỗng hoặc trùng SystemKey)
+    // Ta set nó về SystemKey để App hoạt động, NHƯNG khi lưu vào LocalStorage (ở App.tsx) ta sẽ lưu rỗng.
     if (!keyToSave && SYSTEM_API_KEY) {
       keyToSave = SYSTEM_API_KEY;
     }
 
-    const trimmedSettings = {
+    const finalSettings = {
       ...localSettings,
       apiKey: keyToSave
     };
-    onSave(trimmedSettings);
+    onSave(finalSettings);
     onClose();
   };
 
@@ -54,7 +57,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
     try {
       const modelId = getSelectedModelId(localSettings);
       await testConnection(keyToTest, modelId);
-      setTestResult({ success: true, message: "Kết nối thành công! Bạn có thể sử dụng ngay." });
+      setTestResult({ success: true, message: "Kết nối thành công! Key hoạt động tốt." });
     } catch (err: any) {
       setTestResult({ success: false, message: err.message });
     } finally {
@@ -62,7 +65,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
     }
   };
 
-  const isSystemKey = SYSTEM_API_KEY && localSettings.apiKey === SYSTEM_API_KEY;
+  const isUsingSystemKey = SYSTEM_API_KEY && (localSettings.apiKey === SYSTEM_API_KEY || !localSettings.apiKey);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -85,20 +88,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
               Google Gemini API Key <span className="text-red-500">*</span>
             </label>
             
-            {isSystemKey ? (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3 shadow-sm">
+            {isUsingSystemKey ? (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 shadow-sm">
                 <div className="p-2 bg-white rounded-full border border-green-100 shadow-sm shrink-0">
                   <ShieldCheck className="w-6 h-6 text-green-600" />
                 </div>
                 <div className="flex-grow">
-                  <p className="font-bold text-green-800 text-sm">Key Mặc Định Đang Kích Hoạt</p>
-                  <p className="text-xs text-green-700 mt-0.5">Hệ thống đang sử dụng API Key cấu hình sẵn (VITE_API_KEY) trên Server.</p>
+                  <p className="font-bold text-green-800 text-sm">Đang dùng Key Mặc Định</p>
+                  <p className="text-xs text-green-700 mt-0.5">Sử dụng API Key được cấu hình sẵn trên Server.</p>
                 </div>
                 <button 
                   onClick={() => setLocalSettings({ ...localSettings, apiKey: '' })}
-                  className="px-3 py-1.5 text-xs font-medium bg-white border border-green-200 text-green-700 rounded-lg hover:bg-green-100 transition-colors shadow-sm whitespace-nowrap"
+                  className="mt-2 sm:mt-0 px-3 py-1.5 text-xs font-medium bg-white border border-green-200 text-green-700 rounded-lg hover:bg-green-100 transition-colors shadow-sm whitespace-nowrap"
                 >
-                  Thay đổi
+                  Nhập Key riêng
                 </button>
               </div>
             ) : (
@@ -106,7 +109,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                 <div className="relative">
                   <input
                     type={showKey ? "text" : "password"}
-                    value={localSettings.apiKey}
+                    value={localSettings.apiKey === SYSTEM_API_KEY ? '' : localSettings.apiKey}
                     onChange={(e) => {
                        setLocalSettings({ ...localSettings, apiKey: e.target.value });
                        setTestResult(null);
@@ -135,12 +138,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
               </div>
             )}
 
-            {!isSystemKey && (
+            {!isUsingSystemKey && (
               <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-sm text-amber-800 flex gap-2 items-start">
                 <div className="mt-0.5"><ExternalLink size={14} /></div>
                 <div>
                   <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="font-semibold underline hover:text-amber-900">Lấy API Key tại đây</a>.
-                  <p className="mt-1 text-xs opacity-80 font-medium">Lưu ý: Nếu deploy lên Netlify/Vercel, hãy đảm bảo API Key KHÔNG bị giới hạn tên miền (Referrer) hoặc đã thêm domain của web vào danh sách cho phép.</p>
+                  <p className="mt-1 text-xs opacity-80 font-medium">Dùng Key cá nhân giúp bạn không bị giới hạn bởi lưu lượng chung của hệ thống.</p>
                 </div>
               </div>
             )}

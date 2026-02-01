@@ -32,28 +32,39 @@ export const BOOK_SETS = [
   "Tự do (AI tự chọn phù hợp)"
 ];
 
-// --- CẤU HÌNH API KEY HỆ THỐNG ---
+export const SKKN_SUGGESTIONS = [
+  "Ứng dụng CNTT và AI trong giảng dạy",
+  "Phương pháp dạy học theo dự án (Project-based Learning)",
+  "Phát triển năng lực tự học và sáng tạo cho học sinh",
+  "Giáo dục kỹ năng sống thông qua hoạt động trải nghiệm",
+  "Biện pháp nâng cao chất lượng công tác chủ nhiệm lớp",
+  "Tích hợp giáo dục bảo vệ môi trường trong môn học",
+  "Sử dụng sơ đồ tư duy (Mindmap) để hệ thống hóa kiến thức",
+  "Rèn luyện kỹ năng làm việc nhóm cho học sinh"
+];
+
+// --- CẤU HÌNH API KEY CHO CPANEL / HOSTING ---
+// BƯỚC 1: Nếu bạn deploy lên cPanel và không biết cài biến môi trường, 
+// hãy dán trực tiếp API Key của bạn vào giữa cặp dấu ngoặc kép bên dưới.
+// Ví dụ: const HOSTING_API_KEY = "AIzaSy...";
+export const HOSTING_API_KEY = ""; 
+
 const getSystemKey = () => {
-  // CHUẨN HÓA: Ưu tiên tuyệt đối cho VITE_API_KEY theo yêu cầu.
-  
-  // 1. Kiểm tra môi trường Vite (import.meta.env)
+  // Ưu tiên 1: Key dán trực tiếp trong code (Dành cho cPanel/Static Hosting)
+  if (HOSTING_API_KEY) return HOSTING_API_KEY;
+
+  // Ưu tiên 2: Biến môi trường Vite (Dành cho Vercel/Netlify/Docker)
   try {
     const meta = import.meta as any;
-    // Vite injects env variables into import.meta.env
     if (meta && meta.env && meta.env.VITE_API_KEY) {
       return meta.env.VITE_API_KEY;
     }
-  } catch (e) {
-    // Ignore if not in a module environment
-  }
+  } catch (e) {}
 
-  // 2. Fallback: Kiểm tra process.env (Node.js / Build Tools)
-  // Vẫn ưu tiên VITE_API_KEY nếu được inject vào process.env
+  // Ưu tiên 3: Biến môi trường Node/Process (Fallback)
   try {
     if (typeof process !== 'undefined' && process.env) {
       if (process.env.VITE_API_KEY) return process.env.VITE_API_KEY;
-      
-      // Các fallback khác (nếu cần thiết cho tương thích ngược)
       if (process.env.NEXT_PUBLIC_API_KEY) return process.env.NEXT_PUBLIC_API_KEY;
       if (process.env.REACT_APP_API_KEY) return process.env.REACT_APP_API_KEY;
     }
@@ -62,10 +73,6 @@ const getSystemKey = () => {
   return "";
 };
 
-// QUAN TRỌNG: 
-// Trên Netlify/Vercel: Vào Settings -> Environment Variables.
-// Thêm biến mới: Key = VITE_API_KEY, Value = [API Key của bạn]
-// Sau đó bắt buộc phải Redeploy (Build lại) ứng dụng.
 export const SYSTEM_API_KEY = getSystemKey();
 
 export const SYSTEM_INSTRUCTION = `
@@ -85,7 +92,13 @@ Hãy lập dàn ý chi tiết (Outline) cho SKKN với thông tin sau:
 - Thực trạng: ${data.situation}
 - Giải pháp chính: ${data.solution}
 
-Yêu cầu dàn ý phải có đủ 3 phần:
+Yêu cầu dàn ý phải có đủ 3 phần.
+**ĐẶC BIỆT CHÚ Ý VỀ FORMAT:**
+- Sử dụng **Markdown Heading** (#, ##, ###) để phân chia các mục.
+- **# TÊN SÁNG KIẾN** (H1)
+- **## I. PHẦN MỞ ĐẦU** (H2)
+- **### 1. Lý do chọn đề tài** (H3)
+
 I. PHẦN MỞ ĐẦU (Lý do chọn đề tài, Mục đích, Đối tượng, Phạm vi).
 II. PHẦN NỘI DUNG (Cơ sở lý luận, Thực trạng, Các giải pháp cụ thể 1, 2, 3..., Hiệu quả).
 III. KẾT LUẬN (Bài học kinh nghiệm, Kiến nghị).
@@ -100,27 +113,33 @@ Dàn ý:
 ${outline}
 
 Yêu cầu:
+- Sử dụng đúng thẻ **##** cho các mục lớn (VD: ## I. PHẦN MỞ ĐẦU) và **###** cho các mục nhỏ (VD: ### 1. Lý do chọn biện pháp).
 - Viết sâu sắc về lý do chọn biện pháp.
 - Phân tích rõ hạn chế/khó khăn của thực trạng (GV và HS) trước khi áp dụng.
-- Dùng định dạng Markdown.
 `;
 
-export const PART_2_3_PROMPT = (outline: string, part1: string) => `
+export const PART_2_3_PROMPT = (outline: string, part1: string, specificLessons: string) => `
 Dựa vào dàn ý và phần đầu đã viết, hãy viết tiếp **II.3. Các giải pháp** và **III. KẾT LUẬN**.
 
 Dàn ý:
 ${outline}
 
-Nội dung đã viết (để tham khảo context, không lặp lại):
+Nội dung đã viết (context):
 ${part1}
 
-Yêu cầu quan trọng về Ví Dụ Minh Họa:
-- Chia thành các biện pháp/giải pháp nhỏ rõ ràng (Biện pháp 1, Biện pháp 2...).
-- Mỗi biện pháp phải có: Mục tiêu -> Cách thực hiện -> Ví dụ minh họa.
-- **VÍ DỤ MINH HỌA:** Phải lấy từ bài học cụ thể trong bộ sách giáo khoa đã chọn (hoặc bộ sách phổ biến nếu chọn tự do).
-  * Ví dụ: Nếu môn Ngữ Văn 8 (Kết nối tri thức), hãy lấy ví dụ từ văn bản "Lá cờ thêu sáu chữ vàng" hoặc "Quang Trung đại phá quân Thanh" v.v...
-  * Nếu môn Toán, hãy lấy bài tập hoặc tình huống trong SGK thực tế.
+**THÔNG TIN BỔ SUNG QUAN TRỌNG:**
+Người dùng đã cung cấp danh sách các bài học cụ thể hoặc nội dung giáo án mẫu để làm ví dụ minh họa. 
+Hãy ƯU TIÊN sử dụng thông tin này để viết phần "Ví dụ minh họa" trong các giải pháp.
+Thông tin bài học/ví dụ: 
+"""
+${specificLessons}
+"""
+Nếu có tài liệu đính kèm (PDF/Word content được gửi kèm prompt này), hãy phân tích kỹ nội dung đó để trích dẫn làm minh chứng thực tế.
+
+Yêu cầu quan trọng:
+- Sử dụng đúng thẻ **###** cho các biện pháp (VD: ### 3. Các giải pháp).
+- Chia thành các biện pháp/giải pháp nhỏ rõ ràng.
+- Mỗi biện pháp phải có: Mục tiêu -> Cách thực hiện -> **Ví dụ minh họa (Áp dụng vào bài học cụ thể người dùng cung cấp)**.
 - Phần Hiệu quả: So sánh kết quả định lượng (tạo bảng số liệu giả định trươc/sau) và định tính.
 - Kết luận: Khẳng định giá trị và bài học kinh nghiệm.
-- Dùng định dạng Markdown.
 `;
