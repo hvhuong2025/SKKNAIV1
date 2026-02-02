@@ -140,7 +140,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenSettings, clas
         </div>
         
         <div className="p-4 border-t border-slate-100 bg-slate-50/50 backdrop-blur text-center">
-          <p className="text-[10px] text-slate-400 uppercase tracking-widest">© 2024 AI SKKN PRO</p>
+          <p className="text-[10px] text-slate-400 uppercase tracking-widest">© 2026 SOẠN GIẢNG AI-SKKN PRO</p>
         </div>
       </aside>
     </>

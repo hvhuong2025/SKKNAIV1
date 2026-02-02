@@ -43,6 +43,9 @@ const GeneratorForm: React.FC<GeneratorFormProps> = ({
     fileInputRef.current?.click();
   };
 
+  // Logic kiểm tra xem có phải đang chọn Công tác chủ nhiệm không
+  const isHomeroom = formData.subject === 'Công tác Chủ nhiệm lớp';
+
   return (
     <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl shadow-slate-200/50 border border-white p-6 md:p-10 mb-8 relative overflow-hidden group">
       {/* Decorative Top Line */}
@@ -72,7 +75,7 @@ const GeneratorForm: React.FC<GeneratorFormProps> = ({
                   name="title"
                   value={formData.title}
                   onChange={handleChange}
-                  placeholder="VD: Một số biện pháp giúp học sinh lớp 8..."
+                  placeholder={isHomeroom ? "VD: Biện pháp giáo dục đạo đức cho học sinh cá biệt..." : "VD: Một số biện pháp giúp học sinh lớp 8..."}
                   className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all duration-300 placeholder:text-slate-400 font-medium text-slate-700 shadow-sm group-hover/input:border-blue-200 group-hover/input:bg-white"
                 />
               </div>
@@ -100,7 +103,7 @@ const GeneratorForm: React.FC<GeneratorFormProps> = ({
           {/* Môn học */}
           <div className="relative group/input">
             <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider ml-1">
-              Môn học
+              Môn học / Lĩnh vực
             </label>
             <div className="relative">
                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 pointer-events-none">
@@ -122,10 +125,10 @@ const GeneratorForm: React.FC<GeneratorFormProps> = ({
             </div>
           </div>
           
-          {/* Bộ sách */}
+          {/* Bộ sách - Thay đổi label nếu là GVCN */}
           <div className="relative group/input">
             <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider ml-1">
-               Bộ sách giáo khoa
+               {isHomeroom ? "Cơ sở / Tài liệu áp dụng" : "Bộ sách giáo khoa"}
             </label>
             <div className="relative">
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none">
@@ -219,7 +222,8 @@ const GeneratorForm: React.FC<GeneratorFormProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div className="relative group/input">
                 <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider ml-1">
-                  Tên bài học / Ví dụ cụ thể
+                  {/* Label thay đổi nếu là GVCN */}
+                  {isHomeroom ? "Chủ đề sinh hoạt / Tình huống cụ thể" : "Tên bài học / Ví dụ cụ thể"}
                 </label>
                 <div className="relative">
                    <div className="absolute left-4 top-5 text-blue-500 pointer-events-none">
@@ -230,7 +234,9 @@ const GeneratorForm: React.FC<GeneratorFormProps> = ({
                     value={formData.specificLessons}
                     onChange={handleChange}
                     rows={3}
-                    placeholder="Nhập tên bài học (VD: Bài 3: Cấu tạo nguyên tử - Hóa 10) hoặc nội dung giáo án cụ thể để AI dùng làm ví dụ..."
+                    placeholder={isHomeroom 
+                      ? "Nhập tên chủ đề (VD: Chủ đề Tháng 11: Tôn sư trọng đạo), hoặc tình huống xử lý học sinh cá biệt cụ thể..." 
+                      : "Nhập tên bài học (VD: Bài 3: Cấu tạo nguyên tử - Hóa 10) hoặc nội dung giáo án cụ thể để AI dùng làm ví dụ..."}
                     className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all duration-300 resize-none font-medium text-slate-700 shadow-sm group-hover/input:border-blue-200 group-hover/input:bg-white"
                   />
                 </div>

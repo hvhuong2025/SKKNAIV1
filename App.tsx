@@ -1,13 +1,23 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Settings as SettingsIcon, Sparkles, AlertTriangle, Wrench, Menu, Zap } from 'lucide-react';
+import { Settings as SettingsIcon, Sparkles, AlertTriangle, Wrench, Menu, Zap, PenTool, ShieldCheck } from 'lucide-react';
 import SettingsModal from './components/SettingsModal';
 import GeneratorForm from './components/GeneratorForm';
+import EvaluatorForm from './components/EvaluatorForm';
 import ResultView from './components/ResultView';
 import Sidebar from './components/Sidebar';
-import { SYSTEM_INSTRUCTION, OUTLINE_PROMPT, PART_1_PROMPT, PART_2_3_PROMPT, SYSTEM_API_KEY } from './constants';
+import { 
+  SYSTEM_INSTRUCTION, 
+  OUTLINE_PROMPT, 
+  PART_1_PROMPT, 
+  PART_2_3_PROMPT, 
+  SYSTEM_API_KEY, 
+  EVALUATOR_SYSTEM_INSTRUCTION, 
+  EVALUATION_PROMPT,
+  PLAGIARISM_CHECK_PROMPT
+} from './constants';
 import { generateContent, getSelectedModelId } from './services/geminiService';
-import { FormData, Settings, GenerationStep, UploadedFile } from './types';
-import mammoth from 'mammoth';
+import { FormData, Settings, GenerationStep, UploadedFile, AppMode } from './types';
+import * as mammoth from 'mammoth'; // Import toàn bộ để xử lý tương thích
 
 const App: React.FC = () => {
   // Logic khởi tạo Settings...
@@ -31,8 +41,9 @@ const App: React.FC = () => {
     }
   });
 
+  const [mode, setMode] = useState<AppMode>('generator'); // Chế độ: Soạn thảo hoặc Chấm điểm
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // State cho Mobile Sidebar
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const [formData, setFormData] = useState<FormData>({
     title: '',
@@ -44,7 +55,11 @@ const App: React.FC = () => {
     specificLessons: '',
   });
 
-  const [attachedFiles, setAttachedFiles] = useState<UploadedFile[]>([]);
+  // Files cho Generator
+  const [generatorFiles, setGeneratorFiles] = useState<UploadedFile[]>([]);
+  // Files cho Evaluator (chỉ cho phép 1 file SKKN chính để chấm)
+  const [evaluatorFiles, setEvaluatorFiles] = useState<UploadedFile[]>([]);
+
   const [step, setStep] = useState<GenerationStep>(GenerationStep.IDLE);
   const [result, setResult] = useState<string>('');
   const [progressMsg, setProgressMsg] = useState<string>('');
@@ -66,50 +81,68 @@ const App: React.FC = () => {
     }
   }, [settings.apiKey]);
 
-  // Xử lý đọc file
-  const handleFilesSelected = async (fileList: FileList) => {
+  // Xử lý đọc file chung (Helper)
+  const processFiles = async (fileList: FileList): Promise<UploadedFile[]> => {
     const newFiles: UploadedFile[] = [];
-    
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
-      // Giới hạn 5MB
-      if (file.size > 5 * 1024 * 1024) {
-        alert(`File ${file.name} quá lớn (Max 5MB)`);
+      const fileName = file.name.toLowerCase();
+
+      if (file.size > 10 * 1024 * 1024) { // Tăng giới hạn lên 10MB
+        alert(`File ${file.name} quá lớn (Max 10MB)`);
         continue;
       }
-
+      
       try {
-        if (file.type === 'application/pdf') {
+        if (fileName.endsWith('.pdf')) {
            const base64 = await readFileAsBase64(file);
-           newFiles.push({
-             name: file.name,
-             type: 'pdf',
-             content: base64,
-             mimeType: 'application/pdf'
-           });
-        } else if (file.name.endsWith('.docx')) {
+           newFiles.push({ name: file.name, type: 'pdf', content: base64, mimeType: 'application/pdf' });
+        } else if (fileName.endsWith('.docx')) {
            const arrayBuffer = await readFileAsArrayBuffer(file);
-           const result = await mammoth.extractRawText({ arrayBuffer });
-           newFiles.push({
-             name: file.name,
-             type: 'docx',
-             content: result.value, // Text extracted
-             mimeType: 'text/plain'
-           });
-        } else if (file.type === 'text/plain') {
+           
+           // Helper để lấy hàm extractRawText từ mammoth (xử lý tương thích ESM/CommonJS)
+           let extractRawTextFn = mammoth.extractRawText;
+           // @ts-ignore
+           if (!extractRawTextFn && mammoth.default && mammoth.default.extractRawText) {
+              // @ts-ignore
+              extractRawTextFn = mammoth.default.extractRawText;
+           }
+
+           if (!extractRawTextFn) {
+             throw new Error("Không thể tải thư viện đọc Word (mammoth). Vui lòng tải lại trang.");
+           }
+
+           const result = await extractRawTextFn({ arrayBuffer });
+           if (!result.value) {
+             throw new Error("File Word không có nội dung văn bản đọc được.");
+           }
+           newFiles.push({ name: file.name, type: 'docx', content: result.value, mimeType: 'text/plain' });
+        } else if (fileName.endsWith('.txt')) {
            const text = await readFileAsText(file);
-           newFiles.push({
-             name: file.name,
-             type: 'txt',
-             content: text,
-             mimeType: 'text/plain'
-           });
+           newFiles.push({ name: file.name, type: 'txt', content: text, mimeType: 'text/plain' });
+        } else {
+           alert(`File ${file.name} không đúng định dạng. Chỉ hỗ trợ .DOCX (Word), .PDF hoặc .TXT.`);
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Error reading file", file.name, e);
+        alert(`Lỗi khi đọc file ${file.name}: ${e.message || "Không xác định"}. Vui lòng thử lại hoặc dùng file PDF.`);
       }
     }
-    setAttachedFiles(prev => [...prev, ...newFiles]);
+    return newFiles;
+  };
+
+  // Handler cho Generator Files
+  const handleGeneratorFilesSelected = async (fileList: FileList) => {
+    const files = await processFiles(fileList);
+    setGeneratorFiles(prev => [...prev, ...files]);
+  };
+
+  // Handler cho Evaluator Files (Chỉ lấy 1 file mới nhất)
+  const handleEvaluatorFilesSelected = async (fileList: FileList) => {
+    const files = await processFiles(fileList);
+    if (files.length > 0) {
+      setEvaluatorFiles([files[files.length - 1]]); // Replace old file
+    }
   };
 
   const readFileAsBase64 = (file: File): Promise<string> => {
@@ -117,11 +150,16 @@ const App: React.FC = () => {
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
-        // Remove data URL prefix (e.g., "data:application/pdf;base64,")
-        const base64 = result.split(',')[1];
-        resolve(base64);
+        // Kiểm tra xem result có đúng format data URL không
+        if (result.includes(',')) {
+            const base64 = result.split(',')[1];
+            resolve(base64);
+        } else {
+            // Trường hợp ít gặp, trả về nguyên chuỗi hoặc handle lỗi
+            resolve(result);
+        }
       };
-      reader.onerror = reject;
+      reader.onerror = (e) => reject(new Error("Lỗi đọc file Base64"));
       reader.readAsDataURL(file);
     });
   };
@@ -130,7 +168,7 @@ const App: React.FC = () => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as ArrayBuffer);
-      reader.onerror = reject;
+      reader.onerror = (e) => reject(new Error("Lỗi đọc file ArrayBuffer"));
       reader.readAsArrayBuffer(file);
     });
   };
@@ -139,24 +177,16 @@ const App: React.FC = () => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
+      reader.onerror = (e) => reject(new Error("Lỗi đọc file Text"));
       reader.readAsText(file);
     });
   };
 
-  const handleRemoveFile = (index: number) => {
-    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
+  // Chức năng: SOẠN THẢO (GENERATE)
   const handleGenerate = useCallback(async () => {
     if (!formData.title) return;
-    
     const activeKey = settings.apiKey || SYSTEM_API_KEY;
-    if (!activeKey) {
-      setIsSettingsOpen(true);
-      setError("Vui lòng nhập API Key trong phần Cấu hình để bắt đầu.");
-      return;
-    }
+    if (!activeKey) { setIsSettingsOpen(true); setError("Vui lòng nhập API Key."); return; }
 
     setStep(GenerationStep.GENERATING_OUTLINE);
     setError(null);
@@ -166,11 +196,12 @@ const App: React.FC = () => {
       const modelId = getSelectedModelId(settings);
       
       // Bước 1: Dàn ý
+      // Dàn ý chỉ dùng để AI "suy nghĩ" và cho người dùng xem tạm.
+      // Nó sẽ BỊ XÓA khỏi kết quả cuối cùng khi bước viết nội dung bắt đầu.
       setProgressMsg('Đang lập dàn ý chi tiết...');
       const outlinePrompt = OUTLINE_PROMPT(formData);
       const outline = await generateContent(modelId, outlinePrompt, activeKey, SYSTEM_INSTRUCTION);
-      
-      setResult((prev) => prev + `### DÀN Ý DỰ KIẾN\n\n${outline}\n\n---\n\n`);
+      setResult(`### DÀN Ý DỰ KIẾN (Bản nháp để AI định hướng)...\n\n${outline}\n\n---\n\n`);
 
       // Bước 2: Phần 1 & 2
       setStep(GenerationStep.GENERATING_PART_1);
@@ -178,206 +209,251 @@ const App: React.FC = () => {
       const part1Prompt = PART_1_PROMPT(outline);
       const part1 = await generateContent(modelId, part1Prompt, activeKey, SYSTEM_INSTRUCTION);
       
-      setResult((prev) => prev + `${part1}\n\n`);
+      // QUAN TRỌNG: GHI ĐÈ (Override) result bằng part1. 
+      // Loại bỏ phần outline nháp ở bước trước để văn bản sạch sẽ.
+      // Thêm tiêu đề lớn ở đầu văn bản.
+      const documentTitle = `# ${formData.title.toUpperCase()}\n\n`;
+      setResult(documentTitle + part1 + "\n\n");
 
-      // Bước 3: Phần 3 & Kết luận (Multimodal)
+      // Bước 3: Phần 3 & Kết luận
       setStep(GenerationStep.GENERATING_PART_2_3);
-      setProgressMsg(`Đang viết Giải pháp & Kết luận (Phân tích tài liệu đính kèm nếu có)...`);
+      setProgressMsg(`Đang viết Giải pháp & Kết luận (Phân tích tài liệu đính kèm)...`);
       
-      // Chuẩn bị nội dung cho Phần 3
-      // Gom Text từ file DOCX/TXT vào prompt string luôn để AI dễ hiểu context
       let textFromFile = "";
       const pdfParts: any[] = [];
-      
-      attachedFiles.forEach(file => {
+      generatorFiles.forEach(file => {
         if (file.type === 'pdf') {
-          pdfParts.push({
-            inlineData: {
-              mimeType: file.mimeType,
-              data: file.content
-            }
-          });
+          pdfParts.push({ inlineData: { mimeType: file.mimeType, data: file.content } });
         } else {
-          // DOCX hoặc TXT
-          textFromFile += `\n\n--- NỘI DUNG TỪ FILE: ${file.name} ---\n${file.content}\n---------------------\n`;
+          textFromFile += `\n\n--- FILE: ${file.name} ---\n${file.content}\n---------------------\n`;
         }
       });
 
       const specificLessonsContext = formData.specificLessons + textFromFile;
       const part23PromptText = PART_2_3_PROMPT(outline, part1, specificLessonsContext);
-
-      // Tạo Payload gửi cho Gemini
-      // Cấu trúc: [ { text: "..." }, { inlineData: ... }, { inlineData: ... } ]
-      const finalParts = [
-        { text: part23PromptText },
-        ...pdfParts
-      ];
+      const finalParts = [{ text: part23PromptText }, ...pdfParts];
 
       const part23 = await generateContent(modelId, finalParts, activeKey, SYSTEM_INSTRUCTION);
       
+      // Nối tiếp phần 2 vào kết quả
       setResult((prev) => prev + `${part23}`);
-      
       setStep(GenerationStep.COMPLETED);
       setProgressMsg('');
 
     } catch (err: any) {
-      setStep(GenerationStep.ERROR);
-      
-      let finalErrorMsg = err.message || "Có lỗi xảy ra trong quá trình tạo.";
-      const activeKey = settings.apiKey || SYSTEM_API_KEY;
-
-      if (SYSTEM_API_KEY && activeKey === SYSTEM_API_KEY) {
-        console.warn("System Key failed. Prompting user for personal key.");
-        finalErrorMsg = `⚠️ Key hệ thống mặc định đang quá tải hoặc gặp sự cố.\n\nĐể tiếp tục sử dụng ngay, vui lòng NHẬP API KEY CÁ NHÂN của bạn trong phần Cấu hình.\n(Chi tiết lỗi: ${err.message})`;
-      }
-
-      setError(finalErrorMsg);
+      handleError(err);
     }
-  }, [formData, settings, attachedFiles]);
+  }, [formData, settings, generatorFiles]);
+
+  // Chức năng: CHẤM ĐIỂM (EVALUATE)
+  const handleEvaluate = useCallback(async () => {
+    if (evaluatorFiles.length === 0) return;
+    const activeKey = settings.apiKey || SYSTEM_API_KEY;
+    if (!activeKey) { setIsSettingsOpen(true); setError("Vui lòng nhập API Key."); return; }
+
+    setStep(GenerationStep.EVALUATING);
+    setError(null);
+    setResult('');
+    setProgressMsg('Đang đọc và phân tích SKKN để chấm điểm...');
+
+    try {
+       const modelId = getSelectedModelId(settings);
+       const file = evaluatorFiles[0];
+       const contentParts: any[] = [];
+
+       if (file.type === 'pdf') {
+         contentParts.push({ inlineData: { mimeType: file.mimeType, data: file.content } });
+         contentParts.push({ text: EVALUATION_PROMPT });
+       } else {
+         // Docx/Text
+         const promptWithContent = `NỘI DUNG SKKN CẦN CHẤM:\n"""\n${file.content}\n"""\n\n${EVALUATION_PROMPT}`;
+         contentParts.push({ text: promptWithContent });
+       }
+
+       const evaluationResult = await generateContent(modelId, contentParts, activeKey, EVALUATOR_SYSTEM_INSTRUCTION);
+       setResult(evaluationResult);
+       setStep(GenerationStep.COMPLETED);
+       setProgressMsg('');
+
+    } catch (err: any) {
+      handleError(err);
+    }
+
+  }, [evaluatorFiles, settings]);
+
+  // Chức năng mới: KIỂM TRA ĐẠO VĂN (CHECK PLAGIARISM)
+  const handleCheckPlagiarism = useCallback(async () => {
+    if (evaluatorFiles.length === 0) return;
+    const activeKey = settings.apiKey || SYSTEM_API_KEY;
+    if (!activeKey) { setIsSettingsOpen(true); setError("Vui lòng nhập API Key."); return; }
+
+    setStep(GenerationStep.CHECKING_PLAGIARISM);
+    setError(null);
+    setResult('');
+    setProgressMsg('AI đang soi từng câu chữ để phát hiện văn mẫu & sao chép...');
+
+    try {
+       const modelId = getSelectedModelId(settings);
+       const file = evaluatorFiles[0];
+       const contentParts: any[] = [];
+
+       // Sử dụng Prompt kiểm tra đạo văn thay vì prompt chấm điểm
+       if (file.type === 'pdf') {
+         contentParts.push({ inlineData: { mimeType: file.mimeType, data: file.content } });
+         contentParts.push({ text: PLAGIARISM_CHECK_PROMPT });
+       } else {
+         const promptWithContent = `NỘI DUNG SKKN CẦN KIỂM TRA ĐỘC BẢN:\n"""\n${file.content}\n"""\n\n${PLAGIARISM_CHECK_PROMPT}`;
+         contentParts.push({ text: promptWithContent });
+       }
+
+       const checkResult = await generateContent(modelId, contentParts, activeKey, EVALUATOR_SYSTEM_INSTRUCTION);
+       setResult(checkResult);
+       setStep(GenerationStep.COMPLETED);
+       setProgressMsg('');
+
+    } catch (err: any) {
+      handleError(err);
+    }
+  }, [evaluatorFiles, settings]);
+
+  const handleError = (err: any) => {
+    setStep(GenerationStep.ERROR);
+    let finalErrorMsg = err.message || "Có lỗi xảy ra.";
+    const activeKey = settings.apiKey || SYSTEM_API_KEY;
+    if (SYSTEM_API_KEY && activeKey === SYSTEM_API_KEY) {
+      finalErrorMsg = `⚠️ Key hệ thống gặp sự cố. Vui lòng NHẬP API KEY CÁ NHÂN.\n(Lỗi: ${err.message})`;
+    }
+    setError(finalErrorMsg);
+  };
 
   return (
     <div className="flex h-screen bg-[#F8FAFC] font-sans text-slate-900 overflow-hidden relative">
-      {/* Background Decor Elements */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/30 rounded-full blur-3xl pointer-events-none mix-blend-multiply"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-200/30 rounded-full blur-3xl pointer-events-none mix-blend-multiply"></div>
-      <div className="absolute top-[20%] right-[10%] w-[30%] h-[30%] bg-indigo-200/20 rounded-full blur-3xl pointer-events-none mix-blend-multiply"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-green-200/30 rounded-full blur-3xl pointer-events-none mix-blend-multiply"></div>
 
-      {/* Sidebar - Slider Trái */}
-      <Sidebar 
-        isOpen={isSidebarOpen} 
-        onClose={() => setIsSidebarOpen(false)} 
-        onOpenSettings={() => setIsSettingsOpen(true)}
-      />
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} onOpenSettings={() => setIsSettingsOpen(true)} />
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative z-10">
-        
-        {/* Header - Glassmorphism */}
-        <header className="sticky top-0 z-30 bg-white/70 backdrop-blur-xl border-b border-white/50 shadow-sm shrink-0 transition-all duration-300">
+        {/* Header */}
+        <header className="sticky top-0 z-30 bg-white/70 backdrop-blur-xl border-b border-white/50 shadow-sm shrink-0">
           <div className="max-w-6xl mx-auto px-4 h-18 py-3 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              {/* Nút Menu cho Mobile */}
-              <button 
-                onClick={() => setIsSidebarOpen(true)}
-                className="md:hidden p-2 hover:bg-slate-100/80 rounded-xl text-slate-600 transition-colors"
-              >
-                <Menu size={24} />
-              </button>
-
-              <div className="flex items-center gap-3 group cursor-default">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform duration-300">
+              <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 hover:bg-slate-100/80 rounded-xl text-slate-600 transition-colors"><Menu size={24} /></button>
+              <div className="flex items-center gap-3 cursor-default">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 rounded-xl flex items-center justify-center text-white shadow-lg">
                   <Sparkles size={20} className="animate-pulse" />
                 </div>
-                <div className="flex flex-col">
-                  <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-violet-700 bg-clip-text text-transparent hidden lg:block tracking-tight">
-                    AI SKKN Generator <span className="text-amber-500 font-extrabold text-sm align-top ml-0.5">PRO</span>
-                  </h1>
-                  <h1 className="text-lg font-bold bg-gradient-to-r from-blue-700 to-indigo-600 bg-clip-text text-transparent lg:hidden whitespace-nowrap">
-                    AI SKKN
-                  </h1>
-                  <p className="text-[10px] text-slate-500 font-medium tracking-wider uppercase hidden lg:block">Soạn Giảng TV Official</p>
+                <div>
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-violet-700 bg-clip-text text-transparent hidden lg:block">AI SKKN PRO</h1>
+                  <h1 className="text-lg font-bold lg:hidden">AI SKKN</h1>
                 </div>
               </div>
             </div>
 
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 border shadow-sm
-                ${(!settings.apiKey && !SYSTEM_API_KEY) 
-                  ? 'bg-red-50 text-red-600 border-red-200 animate-pulse hover:bg-red-100' 
-                  : 'bg-white/80 hover:bg-white border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-200 hover:shadow-md'}`}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all border shadow-sm ${(!settings.apiKey && !SYSTEM_API_KEY) ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : 'bg-white/80 hover:bg-white border-slate-200 text-slate-600 hover:text-blue-600'}`}
             >
-              {(!settings.apiKey && !SYSTEM_API_KEY) && <AlertTriangle size={18} />}
+              <SettingsIcon size={18} />
               <span className="font-semibold text-sm hidden sm:inline">{(!settings.apiKey && !SYSTEM_API_KEY) ? 'Cấu hình ngay' : 'Cấu hình'}</span>
-              <SettingsIcon size={18} className={(!settings.apiKey && !SYSTEM_API_KEY) ? '' : 'group-hover:rotate-90 transition-transform duration-500'} />
             </button>
           </div>
         </header>
+
+        {/* Mode Switcher Tabs */}
+        <div className="max-w-xl mx-auto mt-6 p-1 bg-slate-200/50 rounded-xl flex shadow-inner">
+           <button 
+             onClick={() => { setMode('generator'); setResult(''); setStep(GenerationStep.IDLE); setError(null); }}
+             className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${mode === 'generator' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+           >
+             <PenTool size={16} /> Soạn thảo SKKN
+           </button>
+           <button 
+             onClick={() => { setMode('evaluator'); setResult(''); setStep(GenerationStep.IDLE); setError(null); }}
+             className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${mode === 'evaluator' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+           >
+             <ShieldCheck size={16} /> Chấm điểm & Thẩm định
+           </button>
+        </div>
 
         {/* Scrollable Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 scroll-smooth">
           <div className="max-w-5xl mx-auto pb-12">
             
-            <div className="mb-10 text-center relative">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-600 text-xs font-bold uppercase tracking-wide mb-4 shadow-sm">
-                <Zap size={12} fill="currentColor" />
-                Trợ lý AI Thế hệ mới
-              </div>
-              <h2 className="text-3xl md:text-5xl font-extrabold text-slate-800 mb-4 tracking-tight">
-                Viết Sáng Kiến Kinh Nghiệm <br/>
-                <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent animate-gradient-x">
-                  Chuyên Nghiệp & Tốc Độ
-                </span>
+            {/* STYLED TITLE SECTION */}
+            <div className="mb-8 text-center relative z-10">
+              <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tight mb-3 leading-tight">
+                {mode === 'generator' ? (
+                  <span 
+                    className="bg-clip-text text-transparent bg-gradient-to-r from-blue-700 via-indigo-600 to-purple-600"
+                    style={{ filter: 'drop-shadow(2px 2px 0px rgba(255,255,255,1)) drop-shadow(0px 0px 4px rgba(59, 130, 246, 0.3))' }}
+                  >
+                    VIẾT SÁNG KIẾN KINH NGHIỆM
+                  </span>
+                ) : (
+                  <span 
+                    className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-700 via-green-600 to-teal-600"
+                    style={{ filter: 'drop-shadow(2px 2px 0px rgba(255,255,255,1)) drop-shadow(0px 0px 4px rgba(16, 185, 129, 0.3))' }}
+                  >
+                    HỆ THỐNG CHẤM ĐIỂM AI
+                  </span>
+                )}
               </h2>
-              <p className="text-lg text-slate-500 max-w-2xl mx-auto leading-relaxed">
-                Hệ thống AI tự động xây dựng nội dung chuẩn cấu trúc Bộ GD&ĐT, giúp giáo viên tiết kiệm 90% thời gian soạn thảo.
-              </p>
+              <div className="inline-block relative mt-2">
+                 <p className="text-slate-600 font-medium text-lg relative z-10 px-4 py-1.5 rounded-full bg-white/60 backdrop-blur-sm border border-white/50 shadow-sm inline-block">
+                    {mode === 'generator' ? 'Xây dựng nội dung chuẩn cấu trúc Bộ GD&ĐT.' : 'Đánh giá, xếp loại SKKN và kiểm tra đạo văn.'}
+                 </p>
+              </div>
             </div>
 
-            {(!settings.apiKey && !SYSTEM_API_KEY) && (
-               <div className="mb-8 p-4 bg-amber-50/80 backdrop-blur-sm border border-amber-200 rounded-2xl text-amber-800 flex items-start gap-4 shadow-sm">
-                 <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0 text-amber-600">
-                    <AlertTriangle className="w-5 h-5" />
-                 </div>
-                 <div>
-                   <h4 className="font-bold text-amber-900">Yêu cầu cấu hình</h4>
-                   <p className="text-sm mt-1">Ứng dụng cần Google Gemini API Key để hoạt động. Vui lòng nhấn vào nút "Cấu hình ngay" ở góc trên để cài đặt.</p>
-                 </div>
-               </div>
+            {/* Content Switcher */}
+            {mode === 'generator' ? (
+              <div className="transition-all duration-500">
+                <GeneratorForm 
+                  formData={formData} 
+                  onChange={setFormData} 
+                  onSubmit={handleGenerate} 
+                  isGenerating={step !== GenerationStep.IDLE && step !== GenerationStep.COMPLETED && step !== GenerationStep.ERROR}
+                  onFilesSelected={handleGeneratorFilesSelected}
+                  attachedFiles={generatorFiles}
+                  onRemoveFile={(idx) => setGeneratorFiles(prev => prev.filter((_, i) => i !== idx))}
+                />
+              </div>
+            ) : (
+              <div className="transition-all duration-500">
+                <EvaluatorForm 
+                   onFilesSelected={handleEvaluatorFilesSelected}
+                   attachedFiles={evaluatorFiles}
+                   onRemoveFile={(idx) => setEvaluatorFiles(prev => prev.filter((_, i) => i !== idx))}
+                   onSubmit={handleEvaluate}
+                   onCheckPlagiarism={handleCheckPlagiarism}
+                   isEvaluating={step === GenerationStep.EVALUATING || step === GenerationStep.CHECKING_PLAGIARISM}
+                />
+              </div>
             )}
 
-            {/* Form Section */}
-            <div className="transition-all duration-500 ease-out transform translate-y-0 opacity-100">
-              <GeneratorForm 
-                formData={formData} 
-                onChange={setFormData} 
-                onSubmit={handleGenerate} 
-                isGenerating={step !== GenerationStep.IDLE && step !== GenerationStep.COMPLETED && step !== GenerationStep.ERROR}
-                onFilesSelected={handleFilesSelected}
-                attachedFiles={attachedFiles}
-                onRemoveFile={handleRemoveFile}
-              />
-            </div>
-
-            {/* Progress & Error */}
-            {step !== GenerationStep.IDLE && step !== GenerationStep.COMPLETED && step !== GenerationStep.ERROR && (
-               <div className="mb-8 bg-white/80 backdrop-blur border border-blue-100 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 text-blue-800 shadow-lg shadow-blue-500/10">
+            {/* Progress */}
+            {(step === GenerationStep.GENERATING_OUTLINE || step === GenerationStep.GENERATING_PART_1 || step === GenerationStep.GENERATING_PART_2_3 || step === GenerationStep.EVALUATING || step === GenerationStep.CHECKING_PLAGIARISM) && (
+               <div className="mb-8 bg-white/80 backdrop-blur border border-blue-100 p-6 rounded-2xl flex flex-col items-center justify-center gap-4 text-blue-800 shadow-lg">
                  <div className="relative w-16 h-16">
                     <div className="absolute inset-0 border-4 border-blue-100 rounded-full"></div>
                     <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Sparkles className="w-6 h-6 text-blue-600 animate-pulse" />
-                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center"><Sparkles className="w-6 h-6 text-blue-600 animate-pulse" /></div>
                  </div>
-                 <div className="text-center">
-                    <span className="font-bold text-lg block mb-1">{progressMsg}</span>
-                    <span className="text-sm text-blue-500">AI đang suy nghĩ và soạn thảo văn bản...</span>
-                 </div>
+                 <span className="font-bold text-lg">{progressMsg}</span>
                </div>
             )}
 
+            {/* Error */}
             {error && (
-              <div className="mb-8 bg-red-50/90 backdrop-blur border border-red-100 p-6 rounded-2xl text-red-800 text-center flex flex-col items-center justify-center gap-4 shadow-lg shadow-red-500/10 animate-in fade-in slide-in-from-top-4">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-600 mb-2">
-                   <AlertTriangle size={24} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-red-900">Đã xảy ra lỗi</h3>
-                  <p className="text-red-700 mt-1 max-w-lg mx-auto bg-white/50 px-4 py-2 rounded-lg border border-red-100 text-sm">
-                    {error}
-                  </p>
-                </div>
-                <button 
-                  onClick={() => setIsSettingsOpen(true)}
-                  className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-all shadow-md hover:shadow-lg transform active:scale-95 flex items-center gap-2"
-                >
-                  <Wrench size={18} />
-                  Sửa lỗi trong Cấu hình
-                </button>
+              <div className="mb-8 bg-red-50 p-6 rounded-2xl text-red-800 text-center border border-red-100 flex flex-col items-center gap-4">
+                <AlertTriangle size={32} className="text-red-500" />
+                <p className="font-medium">{error}</p>
+                <button onClick={() => setIsSettingsOpen(true)} className="px-4 py-2 bg-red-600 text-white rounded-lg flex items-center gap-2 hover:bg-red-700"><Wrench size={16} /> Kiểm tra Cấu hình</button>
               </div>
             )}
 
-            {/* Result Section */}
+            {/* Result */}
             {result && (
               <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
                 <ResultView content={result} />
@@ -387,13 +463,7 @@ const App: React.FC = () => {
         </main>
       </div>
 
-      {/* Settings Modal */}
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
-        settings={settings}
-        onSave={setSettings}
-      />
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} onSave={setSettings} />
     </div>
   );
 };

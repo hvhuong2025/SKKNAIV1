@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, X, Key, Eye, EyeOff, ExternalLink, Save, Activity, CheckCircle, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Settings as SettingsIcon, X, Key, Eye, EyeOff, ExternalLink, Save, Activity, CheckCircle, AlertTriangle, ShieldCheck, RefreshCw, Youtube, ChevronDown, ChevronUp, PlayCircle } from 'lucide-react';
 import { Settings } from '../types';
 import { SKKN_MODELS, SYSTEM_API_KEY } from '../constants';
 import { testConnection, getSelectedModelId } from '../services/geminiService';
@@ -16,12 +16,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
   const [showKey, setShowKey] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showTutorial, setShowTutorial] = useState(false); // State cho video hướng dẫn
 
   React.useEffect(() => {
     // Khi mở modal, nếu key hiện tại trùng với System Key thì hiển thị trạng thái "đang dùng system key"
-    // Để làm điều này, ta kiểm tra nếu localSettings.apiKey === SYSTEM_API_KEY thì giao diện sẽ xử lý
     setLocalSettings(settings);
     setTestResult(null);
+    setShowTutorial(false); // Reset trạng thái video khi mở lại modal
   }, [settings, isOpen]);
 
   if (!isOpen) return null;
@@ -30,7 +31,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
     let keyToSave = localSettings.apiKey.trim();
     
     // Nếu người dùng chọn dùng System Key (keyToSave rỗng hoặc trùng SystemKey)
-    // Ta set nó về SystemKey để App hoạt động, NHƯNG khi lưu vào LocalStorage (ở App.tsx) ta sẽ lưu rỗng.
     if (!keyToSave && SYSTEM_API_KEY) {
       keyToSave = SYSTEM_API_KEY;
     }
@@ -69,7 +69,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[95vh]">
         <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-white">
           <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
             <SettingsIcon className="w-6 h-6 text-blue-600" />
@@ -80,7 +80,48 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
           </button>
         </div>
 
-        <div className="p-6 space-y-6 overflow-y-auto">
+        <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
+          
+          {/* SECTION: VIDEO TUTORIAL BUTTON */}
+          <div className="bg-gradient-to-r from-red-50 via-pink-50 to-red-50 rounded-xl border border-red-100 shadow-sm overflow-hidden">
+             <button 
+               onClick={() => setShowTutorial(!showTutorial)}
+               className="w-full flex items-center justify-between p-4 hover:bg-red-100/50 transition-colors text-left"
+             >
+                <div className="flex items-center gap-3">
+                   <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm text-red-600 animate-pulse">
+                      <Youtube size={20} />
+                   </div>
+                   <div>
+                      <p className="font-bold text-red-700 text-sm">Video Hướng Dẫn (HD)</p>
+                      <p className="text-xs text-red-600/80">Cách lấy API Key & Sử dụng Web</p>
+                   </div>
+                </div>
+                {showTutorial ? <ChevronUp className="text-red-400" /> : <ChevronDown className="text-red-400" />}
+             </button>
+             
+             {showTutorial && (
+               <div className="p-4 pt-0 animate-in slide-in-from-top-2 duration-300">
+                  <div className="aspect-video w-full rounded-lg overflow-hidden shadow-md border border-gray-200 bg-black">
+                    <iframe 
+                      width="100%" 
+                      height="100%" 
+                      src="https://www.youtube.com/embed/JLBOWVy9DLc" 
+                      title="Hướng dẫn sử dụng AI SKKN" 
+                      frameBorder="0" 
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                      allowFullScreen
+                    ></iframe>
+                  </div>
+                  <p className="text-[10px] text-center text-gray-500 mt-2 italic">
+                    *Video hướng dẫn chi tiết cách tạo Key miễn phí và không giới hạn.
+                  </p>
+               </div>
+             )}
+          </div>
+
+          <div className="h-px bg-gray-100"></div>
+
           {/* API Key Section */}
           <div className="space-y-3">
             <label className="block text-sm font-semibold text-gray-700 flex items-center gap-2">
@@ -198,7 +239,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
              className="px-4 py-2.5 text-blue-700 font-medium bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isTesting ? <div className="animate-spin w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full"></div> : <Activity size={18} />}
-            Kiểm tra kết nối
+            <span className="hidden sm:inline">Kiểm tra kết nối</span>
+            <span className="sm:hidden">Test</span>
           </button>
           
           <div className="flex gap-2">

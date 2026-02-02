@@ -13,9 +13,13 @@ export enum GenerationStep {
   GENERATING_OUTLINE = 'GENERATING_OUTLINE',
   GENERATING_PART_1 = 'GENERATING_PART_1',
   GENERATING_PART_2_3 = 'GENERATING_PART_2_3',
+  EVALUATING = 'EVALUATING', // Bước chấm điểm
+  CHECKING_PLAGIARISM = 'CHECKING_PLAGIARISM', // Bước kiểm tra đạo văn
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR',
 }
+
+export type AppMode = 'generator' | 'evaluator';
 
 export interface AppState {
   step: GenerationStep;
